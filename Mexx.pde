@@ -5,9 +5,11 @@ import codeanticode.glgraphics.*;
 
 GSMovie movie;
 //GLTexture tex;
+PImage bg;
 
 SimpleOpenNI context;
 float        zoomF =0.7f;
+float zCoef = 3;
 float        rotX = radians(180);  // by default rotate the hole scene 180deg around the x-axis, 
 // the data from openni comes upside down
 float        rotY = radians(0);
@@ -20,15 +22,25 @@ color[]      userCoMColors = {
 
 float centerZ = -1000;
 
+boolean      handsTrackFlag = false;
+PVector      handVec = new PVector();
+ArrayList    handVecList = new ArrayList();
+int          handVecListSize = 30;
+String       lastGesture = "";
+
+PVector userPosition;
+
 void setup()
 {
-  size(1280, 1080, P3D); 
+  size(911, 768, P3D); 
   //  size(1280, 1080, GLConstants.GLGRAPHICS); 
   context = new SimpleOpenNI(this, SimpleOpenNI.RUN_MODE_MULTI_THREADED);
 
   // Load and play the video in a loop
-  movie = new GSMovie(this, "man.m4v");
-  movie.loop();
+  //movie = new GSMovie(this, "man.m4v");
+  //movie.loop();
+  
+  bg = loadImage("man-background.001.png");
 
   // tex = new GLTexture(this);
 
@@ -37,6 +49,15 @@ void setup()
 
   // enable depthMap generation 
   context.enableDepth();
+
+  // enable hands + gesture generation
+  context.enableGesture();
+  context.enableHands();
+
+  // add focus gestures  / here i do have some problems on the mac, i only recognize raiseHand ? Maybe cpu performance ?
+  context.addGesture("Wave");
+  context.addGesture("Click");
+  context.addGesture("RaiseHand");
 
   // enable skeleton generation for all joints
   context.enableUser(SimpleOpenNI.SKEL_PROFILE_ALL);
@@ -53,12 +74,23 @@ void setup()
 
 void draw()
 {
+//  stroke(0);
+//  fill(0, eraser_opacity);
+  tint(255,64);
+  beginShape();
+  texture(bg);
+    vertex(0, 0, 500);
+    vertex(911, 0, 500);
+    vertex(911, 768, 500);
+    vertex(0, 768, 500);
+  endShape();  
+  tint(255,255);
   // update the cam
   context.update();
-  //  background(0);
-  background(movie);
+ // background(0);
+  //  background(movie);
 
-//rotY += 0.03f;
+  //rotY += 0.03f;
   // set the scene pos
   translate(width/2, height/2, 0);
   rotateX(rotX);
@@ -80,7 +112,8 @@ void draw()
   {
     userMap = context.getUsersPixels(SimpleOpenNI.USERS_ALL);
   }
-  PVector pos = new PVector();
+
+  userPosition = new PVector();
   for (int y=0;y < context.depthHeight();y+=steps)
   {
     for (int x=0;x < context.depthWidth();x+=steps)
@@ -97,10 +130,10 @@ void draw()
           int colorIndex = userMap[index] % userColors.length;
           stroke(userColors[colorIndex]);
           strokeWeight(2);
-          context.getCoM(colorIndex, pos);
+          context.getCoM(colorIndex, userPosition);
           //println(pos.z);
           //centerZ = pos.z - pos.z*2;
-          point(realWorldPoint.x, realWorldPoint.y, realWorldPoint.z*3 + (pos.z - pos.z*3) );
+          point(realWorldPoint.x, realWorldPoint.y, realWorldPoint.z*zCoef + (userPosition.z - userPosition.z*zCoef) );
         }
         //        else
         //          // default color
@@ -109,6 +142,88 @@ void draw()
       }
     }
   } 
+
+  // draw the tracked hand
+  if (handsTrackFlag)  
+  {
+    pushStyle();
+    stroke(255, 0, 0, 200);
+    float z;
+    noFill();
+    Iterator itr = handVecList.iterator(); 
+
+    beginShape();
+    while ( itr.hasNext () ) 
+    { 
+      PVector p = (PVector) itr.next();
+      z = p.z ;
+      if (userPosition != null && userPosition.z != 0 ) z = z*zCoef + (userPosition.z - userPosition.z*zCoef);
+      vertex(p.x, p.y, z);
+    }
+    endShape();   
+
+    stroke(255, 0, 0);
+    strokeWeight(4);
+    z = handVec.z ;
+    if (userPosition != null && userPosition.z != 0 ) z = z*zCoef + (userPosition.z - userPosition.z*zCoef);
+    point(handVec.x, handVec.y, z);
+    popStyle();
+  }
+}
+
+// -----------------------------------------------------------------
+// hand events
+
+void onCreateHands(int handId, PVector pos, float time)
+{
+  println("onCreateHands - handId: " + handId + ", pos: " + pos + ", time:" + time);
+
+  handsTrackFlag = true;
+  handVec = pos;
+
+
+  handVecList.clear();
+  handVecList.add(pos);
+}
+
+void onUpdateHands(int handId, PVector pos, float time)
+{
+  //println("onUpdateHandsCb - handId: " + handId + ", pos: " + pos + ", time:" + time);
+
+  synchronized(handVec) {
+    handVec = pos;
+
+    handVecList.add(0, pos);
+    if (handVecList.size() >= handVecListSize)
+    { // remove the last point 
+      handVecList.remove(handVecList.size()-1);
+    }
+  }
+}
+
+void onDestroyHands(int handId, float time)
+{
+  println("onDestroyHandsCb - handId: " + handId + ", time:" + time);
+
+  handsTrackFlag = false;
+  context.addGesture(lastGesture);
+}
+
+// -----------------------------------------------------------------
+// gesture events
+
+void onRecognizeGesture(String strGesture, PVector idPosition, PVector endPosition)
+{
+  println("onRecognizeGesture - strGesture: " + strGesture + ", idPosition: " + idPosition + ", endPosition:" + endPosition);
+
+  lastGesture = strGesture;
+  context.removeGesture(strGesture); 
+  context.startTrackingHands(endPosition);
+}
+
+void onProgressGesture(String strGesture, PVector position, float progress)
+{
+  //println("onProgressGesture - strGesture: " + strGesture + ", position: " + position + ", progress:" + progress);
 }
 
 
