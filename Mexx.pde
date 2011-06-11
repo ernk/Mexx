@@ -4,11 +4,12 @@ import processing.opengl.*;
 import codeanticode.glgraphics.*;
 
 GSMovie movie;
+PImage bg;
 //GLTexture tex;
 
 SimpleOpenNI context;
 float        zoomF =0.7f;
-float zCoef = 3;
+float zCoef = 4;
 float        rotX = radians(180);  // by default rotate the hole scene 180deg around the x-axis, 
 // the data from openni comes upside down
 float        rotY = radians(0);
@@ -21,7 +22,7 @@ color[]      userCoMColors = {
 
 float centerZ = -1000;
 
-boolean      handsTrackFlag = false;
+boolean      handsTrackFlag = true;
 PVector      handVec = new PVector();
 ArrayList    handVecList = new ArrayList();
 int          handVecListSize = 30;
@@ -29,19 +30,41 @@ String       lastGesture = "";
 
 PVector userPosition;
 
+//Texture init
+GLTexture bubbleTex;              // Texture used to draw each particle.
+
+//Flower painting init
+ParticleSystem psys;
+ArrayList psystems;
+
+//zilch
+PVector zilchStartPoint = new PVector(583, 123, 0);
+int pnum = 70; // max particle count
+int zilchTimer = 30;
+
+ArrayList<BubbleParticle> zilchParticles = new ArrayList<BubbleParticle>();
+
+
 void setup()
 {
-  size(800, 600, P3D); 
+  size(911, 768, GLConstants.GLGRAPHICS); 
   //  size(1280, 1080, GLConstants.GLGRAPHICS); 
+
+  //Texture setup  
+  bubbleTex = new GLTexture(this, "bubble.png");
+  //  bubbleTex = new GLTexture(this, "flower64.png");  
+
+
   context = new SimpleOpenNI(this, SimpleOpenNI.RUN_MODE_MULTI_THREADED);
 
   // Load and play the video in a loop
-  movie = new GSMovie(this, "man.m4v");
-  //movie.loop();
+  movie = new GSMovie(this, "man-cropped-c.mov");
+  movie.loop();
 
-  // tex = new GLTexture(this);
+  bg = loadImage("man-background.001.png");
+  // bg = loadImage("flower64.png");
 
-  // disable mirror
+  // enable mirror
   context.setMirror(true);
 
   // enable depthMap generation 
@@ -62,42 +85,41 @@ void setup()
   // enable the scene, to get the floor
   context.enableScene();
 
-  stroke(255, 255, 255);
-  //smooth();  
-  perspective(95, 
-  float(width)/float(height), 
-  10, 150000);
+  //  stroke(255, 255, 255); 
+  //  perspective(95, 
+  //  float(width)/float(height), 
+  //  10, 150000);
+
+  //Flower painting setup
+  psystems = new ArrayList();
+  psys = new ParticleSystem(1, new PVector(width/2, height/2, 0));
 }
 
 void draw()
 {
-//  stroke(0);
-//  fill(0, eraser_opacity);
-//  beginShape();
-//    vertex(0, 0, 100);
-//    vertex(sx, 0, 100);
-//    vertex(sx, sy, 100);
-//    vertex(0, sy, 100);
-//  endShape();  
-  // update the cam
   context.update();
-  background(0);
+
+  // 
+  tint(255, 255);
+  image(bg, 0, 0, 911, 768); 
+  image(movie, 450, 0);
+  // background(bg, 64);
   //  background(movie);
 
   //rotY += 0.03f;
   // set the scene pos
-  translate(width/2, height/2, 0);
-  rotateX(rotX);
-  rotateY(rotY);
-  scale(zoomF);
+  // translate(width/2, height/2, 0);
+  //  rotateX(rotX);
+  //  rotateY(rotY);
+  //scale(zoomF);
 
 
   int[]   depthMap = context.depthMap();
-  int     steps   = 3;  // to speed up the drawing, draw every third point
+  int     steps   = 7;  // to speed up the drawing, draw every third point
   int     index;
   PVector realWorldPoint;
 
-  translate(0, 0, centerZ);  // set the rotation center of the scene 1000 infront of the camera
+  //translate(0, 0, centerZ);  // set the rotation center of the scene 1000 infront of the camera
 
 
   int userCount = context.getNumberOfUsers();
@@ -108,6 +130,8 @@ void draw()
   }
 
   userPosition = new PVector();
+
+
   for (int y=0;y < context.depthHeight();y+=steps)
   {
     for (int x=0;x < context.depthWidth();x+=steps)
@@ -117,6 +141,8 @@ void draw()
       { 
         // get the realworld points
         realWorldPoint = context.depthMapRealWorld()[index];
+        PVector screenPos = new PVector();
+        context.convertRealWorldToProjective(realWorldPoint, screenPos);
 
         // check if there is a user
         if (userMap != null && userMap[index] != 0)          
@@ -125,43 +151,53 @@ void draw()
           stroke(userColors[colorIndex]);
           strokeWeight(2);
           context.getCoM(colorIndex, userPosition);
-          //println(pos.z);
-          //centerZ = pos.z - pos.z*2;
-          point(realWorldPoint.x, realWorldPoint.y, realWorldPoint.z*zCoef + (userPosition.z - userPosition.z*zCoef) );
+          float bubbleSize = 2*min(abs(7000/(realWorldPoint.z*zCoef + (userPosition.z - userPosition.z*zCoef))), 40);
+          tint(255, 64);
+          image(bubbleTex, screenPos.x, screenPos.y, bubbleSize, bubbleSize);
         }
-        //        else
-        //          // default color
-        //          stroke(100); 
-        //        point(realWorldPoint.x, realWorldPoint.y, realWorldPoint.z);
       }
     }
-  } 
+  }
+
 
   // draw the tracked hand
   if (handsTrackFlag)  
   {
-    pushStyle();
-    stroke(255, 0, 0, 200);
-    float z;
-    noFill();
-    Iterator itr = handVecList.iterator(); 
+    PVector screenPos = new PVector();
+    context.convertRealWorldToProjective(handVec, screenPos);
 
-    beginShape();
-    while ( itr.hasNext () ) 
-    { 
-      PVector p = (PVector) itr.next();
-      z = p.z ;
-      if (userPosition != null && userPosition.z != 0 ) z = z*zCoef + (userPosition.z - userPosition.z*zCoef);
-      vertex(p.x, p.y, z);
+    psystems.add(new ParticleSystem(int(random(2, 10)), new PVector(screenPos.x+ random(5)-2.5, screenPos.y+ random(5)-2.5)));
+  }
+
+  for (int i = psystems.size()-1; i >= 0; i--) {
+    ParticleSystem psys = (ParticleSystem) psystems.get(i);
+    psys.run();
+    if (psys.dead()) {
+      psystems.remove(i);
     }
-    endShape();   
+  }
+  //tint(255, 255);
 
-    stroke(255, 0, 0);
-    strokeWeight(4);
-    z = handVec.z ;
-    if (userPosition != null && userPosition.z != 0 ) z = z*zCoef + (userPosition.z - userPosition.z*zCoef);
-    point(handVec.x, handVec.y, z);
-    popStyle();
+  //paint zilchStartPoint
+//  strokeWeight(5);
+//  stroke(255, 0, 0);
+//  point(zilchStartPoint.x, zilchStartPoint.y);  
+
+  if (zilchTimer > 0) {
+    //add bubbles to zilch
+    for (int i = 0; i < ceil(pnum); i++) {
+      zilchParticles.add(new BubbleParticle(zilchStartPoint));
+    }  
+    zilchTimer -= 1;
+  }
+
+  //render zilch
+  for (int i = zilchParticles.size()-1; i >= 0; i--) {
+    BubbleParticle bParticle = (BubbleParticle) zilchParticles.get(i);
+    bParticle.run();
+    if (bParticle.dead()) {
+      zilchParticles.remove(i);
+    }
   }
 }
 
@@ -171,13 +207,12 @@ void draw()
 void onCreateHands(int handId, PVector pos, float time)
 {
   println("onCreateHands - handId: " + handId + ", pos: " + pos + ", time:" + time);
-
-  handsTrackFlag = true;
-  handVec = pos;
-
-
-  handVecList.clear();
-  handVecList.add(pos);
+  synchronized(handVec) {
+    handsTrackFlag = true;
+    handVec = pos;
+    handVecList.clear();
+    handVecList.add(pos);
+  }
 }
 
 void onUpdateHands(int handId, PVector pos, float time)
@@ -186,7 +221,6 @@ void onUpdateHands(int handId, PVector pos, float time)
 
   synchronized(handVec) {
     handVec = pos;
-
     handVecList.add(0, pos);
     if (handVecList.size() >= handVecListSize)
     { // remove the last point 
@@ -227,6 +261,7 @@ void onProgressGesture(String strGesture, PVector position, float progress)
 void onNewUser(int userId)
 {
   println("onNewUser - userId: " + userId);
+  zilchTimer = 11;
 }
 
 void onLostUser(int userId)
@@ -273,6 +308,10 @@ void keyPressed()
       rotX -= 0.1f;
     break;
   }
+}
+
+void mousePressed() {
+  println("X, Y: " + mouseX + ", " + mouseY);
 }
 
 void movieEvent(GSMovie movie) {
