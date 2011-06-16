@@ -3,35 +3,37 @@ import codeanticode.gsvideo.*;
 import processing.opengl.*;
 import codeanticode.glgraphics.*;
 
+//changes scene version
+boolean male = false;
+
 GSMovie movie;
+int movieOpacity  = 255;
 PImage bg;
-//GLTexture tex;
 
 SimpleOpenNI context;
-float        zoomF =0.7f;
+IntVector users;
+
+//coeficient for body 3D depth increasing
 float        zCoef = 4;
-float        rotX = radians(180);  // by default rotate the hole scene 180deg around the x-axis, 
-// the data from openni comes upside down
-float        rotY = radians(0);
 
-float centerZ = -1000;
+int[]   depthMap;
+int     index;
+PVector realWorldPoint;
+
+//scale and shift scene
 float xShift = 0;
-float yShift = 70;
+float yShift = 0;
 float zShift = 0;
-float scaleXY = 1.2;
+float scaleXY = 1.4;
 
-int     steps   = 6;  // to speed up the drawing, draw every third point
+int     steps   = 6;  // to speed up the drawing, draw every 6th point
 
+//hand tracking variables
 boolean      handsTrackFlag = true;
 PVector      handVec = new PVector();
 ArrayList    handVecList = new ArrayList();
 int          handVecListSize = 30;
 String       lastGesture = "";
-
-PVector userPosition;
-
-//Texture init
-GLTexture bubbleTex;              // Texture used to draw each particle.
 
 //Flower painting init
 ParticleSystem psys;
@@ -39,38 +41,49 @@ ArrayList psystems;
 PVector handScreenPos = new PVector();
 PVector prevScreenPos = new PVector();
 
+PVector userPosition; //current user position
+HashMap COMs = new HashMap(); //user's centers of mass
+int userCount = 0;
+int[] userMap = null;
+PVector screenPos = new PVector();
+
+//Texture init
+GLTexture bubbleTex;              // Texture used to draw each particle.
+float bubbleSize;
+
 //zilch
-PVector zilchStartPoint = new PVector((583 - xShift)/scaleXY, (123 - yShift)/scaleXY, 0);
+PVector zilchStartPoint = new PVector(583/scaleXY - xShift, 123/scaleXY - yShift, 0);
 int pnum = 70; // max particle count
 int zilchTimer = 0;
 float minBubbleX = 10000;
 float minBubbleY = 0;
-
+int zilchDirection = 1;
 ArrayList<BubbleParticle> zilchParticles = new ArrayList<BubbleParticle>();
-
-boolean male = true;
 
 void setup()
 {
   size(911, 768, GLConstants.GLGRAPHICS); 
-  //  size(1280, 1080, GLConstants.GLGRAPHICS); 
-
-  //Texture setup  
-  bubbleTex = new GLTexture(this, "bubble.png");
-  //  bubbleTex = new GLTexture(this, "flower64.png");  
-
 
   context = new SimpleOpenNI(this, SimpleOpenNI.RUN_MODE_MULTI_THREADED);
 
-  // Load and play the video in a loop
-  if (male)
-    movie = new GSMovie(this, "man-cropped-c.mov"); //load male movie
-  else
-    movie = new GSMovie(this, "man-cropped-c.mov"); //load female movie
-  movie.loop();
+  users = new IntVector();
 
-  bg = loadImage("man-background.001.png");
-  // bg = loadImage("flower64.png");
+  // Load and play the video in a loop
+  if (male) {
+    movie = new GSMovie(this, "man-cropped-c.mov"); //load male movie
+    bg = loadImage("man-background.001.png");
+    bubbleTex = new GLTexture(this, "bubble.png");
+    zilchStartPoint = new PVector(665/scaleXY - xShift, 113/scaleXY - yShift, 0);
+    zilchDirection = 1;
+  } 
+  else {
+    movie = new GSMovie(this, "wo-man-final-new-c.m4v"); //load female movie
+    bg = loadImage("wo-man-final-new.png");
+    bubbleTex = new GLTexture(this, "bubble-pink.png");
+    zilchStartPoint = new PVector(265/scaleXY - xShift, 153/scaleXY - yShift, 0);
+    zilchDirection = -1;
+  }
+  movie.loop();
 
   // enable mirror
   context.setMirror(true);
@@ -93,38 +106,50 @@ void setup()
   // enable the scene, to get the floor
   context.enableScene();
 
-  //  stroke(255, 255, 255); 
-  //  perspective(95, 
-  //  float(width)/float(height), 
-  //  10, 150000);
-
   //Flower painting setup
   psystems = new ArrayList();
-  psys = new ParticleSystem(1, new PVector(width/2, height/2, 0));
+  psys = new ParticleSystem(1, new PVector(width/2, height/2, 0)); 
 }
 
 void draw()
 {
   context.update();
 
-  // 
+  //backgroung image
   tint(255, 255);
   image(bg, 0, 0, 911, 768); 
-  image(movie, 450, 0);
 
-  int[]   depthMap = context.depthMap();
-  int     index;
-  PVector realWorldPoint;
+  //movie
+  tint(255, movieOpacity);
+  if (male) {
+    image(movie, 510, 0);
+  } 
+  else {
+    image(movie, 56, 0);
+  } 
 
-  //translate(0, 0, centerZ);  // set the rotation center of the scene 1000 infront of the camera
+  //get depth map from kinect
+  depthMap = context.depthMap();
 
-
-  int userCount = context.getNumberOfUsers();
-  int[] userMap = null;
+  //calculate user's centers of mass
+  userCount = context.getNumberOfUsers();
+  userMap = null;
   if (userCount > 0)
   {
     userMap = context.getUsersPixels(SimpleOpenNI.USERS_ALL);
+
+    //calculate centers of mass of users    
+    context.getUsers(users);
+    for (int i = 0; i < userCount; i++) {
+      PVector uPosition = new PVector();
+      context.getCoM(users.get(i), uPosition);
+      COMs.put(users.get(i), uPosition);
+    }
   }
+
+  pushMatrix(); 
+  scale(scaleXY);
+  translate(xShift, yShift, zShift); 
 
 
   if (zilchTimer > 0) {
@@ -135,41 +160,33 @@ void draw()
     zilchTimer -= 1;
   } 
 
-  userPosition = new PVector();
-
-  //image(bubbleTex, 0, 0, 20, 20);
-
-  pushMatrix(); 
-  scale(scaleXY);
-  translate(0, yShift, 0); 
-
-
-  for (int y=0;y < context.depthHeight();y+=steps)
-  {
-    for (int x=0;x < context.depthWidth();x+=steps)
+  try {
+    for (int y=0;y < context.depthHeight();y+=steps)
     {
-      index = x + y * context.depthWidth();
-      if (depthMap[index] > 0)
-      { 
-        // get the realworld points
-        realWorldPoint = context.depthMapRealWorld()[index];
-        PVector screenPos = new PVector();
-        context.convertRealWorldToProjective(realWorldPoint, screenPos);
+      for (int x=0;x < context.depthWidth();x+=steps)
+      {
+        index = x + y * context.depthWidth();
+        if (depthMap[index] > 0)
+        { 
+          // get the realworld points
+          realWorldPoint = context.depthMapRealWorld()[index];         
+          context.convertRealWorldToProjective(realWorldPoint, screenPos);
 
-        // check if there is a user
-        if (userMap != null && userMap[index] != 0) { 
-          //TODO: get it out from loop
-          context.getCoM(userMap[index], userPosition);
-          float bubbleSize = min((abs(20000/(realWorldPoint.z*zCoef + (userPosition.z - userPosition.z*zCoef)))), 80);
-          tint(255, 100);
-          if (screenPos.x > minBubbleX & screenPos.y < minBubbleY)
-            image(bubbleTex, screenPos.x, screenPos.y, bubbleSize, bubbleSize);
+          // check if there is a user
+          if (userMap != null && userMap[index] != 0) { 
+            userPosition = (PVector)COMs.get(userMap[index]);
+            bubbleSize = min((abs(20000/(realWorldPoint.z*zCoef + (userPosition.z - userPosition.z*zCoef)))), 80);
+            tint(255, 100);
+            if (screenPos.x > minBubbleX & screenPos.y < minBubbleY)
+              image(bubbleTex, screenPos.x, screenPos.y, bubbleSize, bubbleSize);
+          }
         }
       }
     }
   }
-
-
+  catch(Exception e) {
+    e.printStackTrace();
+  }
 
 
   // draw the tracked hand
@@ -177,14 +194,15 @@ void draw()
   {   
     context.convertRealWorldToProjective(handVec, handScreenPos);
 
-    int stepCount = 3;
+    if (prevScreenPos.x == 0 & prevScreenPos.y == 0) prevScreenPos = handScreenPos.get();
     float sx = handScreenPos.x - prevScreenPos.x;
     float sy = handScreenPos.y - prevScreenPos.y;
+    int stepCount = ceil(sqrt(sq(sx) + sq(sy)) / 15);  
 
     for (int step = 0; step < stepCount; step++) {
-      psystems.add(new ParticleSystem(1, new PVector(handScreenPos.x + sx * step/stepCount +  random(5)-2.5, handScreenPos.y + sy * step/stepCount + random(5)-2.5)));    
+      psystems.add(new ParticleSystem(1, new PVector(handScreenPos.x - sx * step/stepCount, handScreenPos.y - sy * step/stepCount )));
     }
-    prevScreenPos = handScreenPos;
+    prevScreenPos = handScreenPos.get();
   }
 
   for (int i = psystems.size()-1; i >= 0; i--) {
@@ -208,6 +226,7 @@ void draw()
       zilchParticles.remove(i);
     }
   }
+  if (minBubbleY > 600) minBubbleX = 0;
   popMatrix();
 }
 
@@ -245,6 +264,8 @@ void onDestroyHands(int handId, float time)
 
   handsTrackFlag = false;
   context.addGesture(lastGesture);
+  prevScreenPos.x = 0;
+  prevScreenPos.y = 0;
 }
 
 // -----------------------------------------------------------------
@@ -274,53 +295,21 @@ void onNewUser(int userId)
   zilchTimer = 11;
   minBubbleX = 10000;
   minBubbleY = 0;
+  movie.pause();
+  movieOpacity = 64;
 }
 
 void onLostUser(int userId)
 {
   println("onLostUser - userId: " + userId);
-}
-
-
-// -----------------------------------------------------------------
-// Keyboard events
-
-void keyPressed()
-{
-  switch(key)
+  userCount = context.getNumberOfUsers();
+  if (userCount <= 0)
   {
-  case ' ':
-    context.setMirror(!context.mirror());
-    break;
-  }
-
-  switch(keyCode)
-  {
-  case LEFT:
-    rotY += 0.03f;
-    break;
-  case RIGHT:
-    // zoom out
-    rotY -= 0.03f;
-    break;
-  case UP:
-    if (keyEvent.isShiftDown())
-      zoomF += 0.01f;
-    else
-      rotX += 0.01f;
-    break;
-  case DOWN:
-    if (keyEvent.isShiftDown())
-    {
-      zoomF -= 0.01f;
-      if (zoomF < 0.01)
-        zoomF = 0.01;
-    }
-    else
-      rotX -= 0.1f;
-    break;
+    movie.loop();
+    movieOpacity = 255;
   }
 }
+
 
 void mousePressed() {
   println("X, Y: " + mouseX + ", " + mouseY);
