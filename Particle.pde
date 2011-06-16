@@ -48,10 +48,10 @@ class Particle {
     if (male)
       fill(112 , 12 , 175, 100);
     else
-      fill(250 , 120 , 12, 100);
+      fill(255 , 0 , 200, 100);
       
     angle += 10;
-    float val = 2*cos(radians(angle)) * 6.0/scaleXY;
+    float val = 2*cos(radians(angle)) * 3.0/scaleXY;
     for (int a = 0; a < 360; a += 75) {
       float xoff = cos(radians(a)) * val/scaleXY;
       float yoff = sin(radians(a)) * val/scaleXY;
@@ -77,9 +77,9 @@ class BubbleParticle extends Particle {
 
   BubbleParticle(PVector l) {
     super(l);
-    acc.x = random(0.6, 1.2)/scaleXY;
-    acc.y = random(0.3, 0.8)/scaleXY;
-    vel.x = random(-30, -20)/scaleXY;
+    acc.x = zilchDirection*random(2, 4)/scaleXY;
+    acc.y = random(2, 3)/scaleXY;
+    vel.x = zilchDirection*random(-45, -37)/scaleXY;
     vel.y = random(-4, 2)/scaleXY;
     timer = 35;
   }

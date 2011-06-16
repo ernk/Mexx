@@ -10,8 +10,8 @@ class ParticleSystem {
     origin = v.get();                        // Store the origin point
     for (int i = 0; i < num; i++) {
    //   if (random(1) < 0.5) {
-          origin.x = origin.x + random(10) - 5;
-          origin.y = origin.y + random(10) - 5;
+          origin.x = origin.x;
+          origin.y = origin.y;
           particles.add(new Particle(origin)); 
    //   }  
     }
